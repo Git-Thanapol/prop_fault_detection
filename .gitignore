@@ -1,0 +1,147 @@
+# .gitignore for prop_fault_detection
+# Keep data, models, logs and environment-specific files out of Git
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# IDEs / editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Virtual environments
+env/
+venv/
+ENV/
+.venv/
+.env/
+env.* 
+.conda/
+
+# Dependency / packaging
+pip-wheel-metadata/
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Jupyter
+.ipynb_checkpoints
+
+# Do NOT commit data — raw, intermediate, processed, results, etc.
+# (explicitly ignore common data file types and folders)
+data/
+data_raw/
+raw_data/
+data_processed/
+processed_data/
+datasets/
+dataset/
+notebooks/data/
+outputs/
+results/
+predictions/
+logs/
+logs/**
+
+# Model artifacts and checkpoints
+models/
+trained_models/
+checkpoints/
+weights/
+*.h5
+*.hdf5
+*.pt
+*.pth
+*.ckpt
+*.bin
+
+# NumPy / ML data files
+*.npz
+*.npy
+*.pkl
+*.pickle
+*.sav
+
+# Tabular / large data files
+*.csv
+*.tsv
+*.parquet
+
+# ML experiment tracking
+mlruns/
+.wandb/
+wandb/
+.track/
+.mlflow/
+
+# Secrets / config
+secrets.json
+credentials.json
+*.pem
+*.key
+*.env
+.env.*
+
+# Logs and runtime files
+*.log
+debug.log
+*.pid
+*.sock
+tmp/
+tmp/**
+
+# Build / compiled artifacts
+*.o
+*.so
+*.dll
+*.exe
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Node / front-end (if present)
+node_modules/
+
+# Coverage
+.coverage
+htmlcov/
+coverage.xml
+
+# Misc
+*.sqlite
+*.db
+*.DS_Store
+
+# If you have any project-specific data folders, add them below:
+# my_large_data_folder/
+
+# Audio files
+*.mp3
+*.wav
+*.flac
+*.aac
+*.ogg
+*.m4a
+
+# Image files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.webp
+*.svg
