@@ -1,11 +1,12 @@
 import pandas as pd
 import numpy as np
 from scipy import signal
+from scipy.io import wavfile  # Added for reading WAV files
 import os
 import glob
 import noisereduce as nr
 import torch
-import torchaudio
+# Removed torchaudio import
 
 # --- CONFIGURATION ---
 INPUT_FOLDER = "./dataset"
@@ -47,6 +48,55 @@ def normalize_audio(tensor):
     
     return tensor / max_val * NORMALIZATION_THRESHOLD
 
+def load_wav_with_scipy(filepath):
+    """
+    Load WAV file using scipy.io.wavfile (more reliable on Windows)
+    Returns: (data, sample_rate)
+    Data shape: [Channels, Time] for compatibility with existing code
+    """
+    sample_rate, data = wavfile.read(filepath)
+    
+    # Convert to float32 in range [-1, 1]
+    if data.dtype == np.int16:
+        data = data.astype(np.float32) / 32768.0
+    elif data.dtype == np.int32:
+        data = data.astype(np.float32) / 2147483648.0
+    elif data.dtype == np.uint8:
+        data = (data.astype(np.float32) - 128) / 128.0
+    
+    # Ensure shape is [Channels, Time]
+    if len(data.shape) == 1:
+        # Mono
+        data = data.reshape(1, -1)
+    else:
+        # Stereo: data is [Time, Channels], transpose to [Channels, Time]
+        data = data.T
+    
+    return data, sample_rate
+
+def save_wav_with_scipy(filepath, data, sample_rate):
+    """
+    Save WAV file using scipy.io.wavfile
+    Data shape: [Channels, Time] or [Time, Channels]
+    """
+    # Ensure data is in the correct format
+    if isinstance(data, torch.Tensor):
+        data = data.numpy()
+    
+    # Convert to int16 for saving
+    if data.dtype != np.int16:
+        # Scale to int16 range
+        data_int16 = np.int16(data * 32767)
+    else:
+        data_int16 = data
+    
+    # If data is [Channels, Time], transpose to [Time, Channels]
+    if len(data_int16.shape) == 2 and data_int16.shape[0] < data_int16.shape[1]:
+        # Assuming [Channels, Time] -> transpose to [Time, Channels]
+        data_int16 = data_int16.T
+    
+    wavfile.write(filepath, sample_rate, data_int16)
+
 def process_all_metadata():
     if not os.path.exists(OUTPUT_FOLDER):
         os.makedirs(OUTPUT_FOLDER)
@@ -65,12 +115,11 @@ def process_all_metadata():
     external_noise_profile = None
     if os.path.exists(NOISE_SAMPLE_FILE):
         print(f"Loading external noise sample: {NOISE_SAMPLE_FILE}")
-        # Load with torchaudio (returns Tensor [Channels, Time], int SampleRate)
-        noise_tensor, sr_noise = torchaudio.load(NOISE_SAMPLE_FILE)
+        # Load with scipy
+        noise_data, sr_noise = load_wav_with_scipy(NOISE_SAMPLE_FILE)
         
-        # Convert to numpy for noisereduce library (expects 1D or 2D array)
-        # We assume mono for noise profile or take the first channel
-        external_noise_profile = noise_tensor.numpy()
+        # Convert to numpy for noisereduce library
+        external_noise_profile = noise_data
         if external_noise_profile.shape[0] == 1:
             external_noise_profile = external_noise_profile.squeeze()
 
@@ -93,16 +142,15 @@ def process_single_csv(csv_path, external_noise_profile):
             continue
 
         try:
-            # Torchaudio loads as Float32 Tensor [Channels, Time]
-            waveform, rate = torchaudio.load(full_audio_path)
+            # Load with scipy instead of torchaudio
+            waveform, rate = load_wav_with_scipy(full_audio_path)
         except Exception as e:
             print(f"   [ERROR] Could not read file {full_audio_path}: {e}")
             continue
 
         # Convert to numpy for Scipy filtering and Noisereduce
-        # waveform is [C, T]. squeeze() makes it [T] if mono, which scipy/noisereduce prefer for 1D.
-        # If stereo, we need to be careful. Let's process as numpy array.
-        data_np = waveform.numpy()
+        # waveform is already numpy array from load_wav_with_scipy
+        data_np = waveform
         is_stereo = data_np.shape[0] > 1
         
         # Flatten for processing if mono to make library usage easier
@@ -140,7 +188,11 @@ def process_single_csv(csv_path, external_noise_profile):
 
             # Safety bounds
             # data_np is either [Time] (mono) or [Channels, Time] (stereo)
-            time_dim = data_np.shape[-1]
+            if is_stereo:
+                time_dim = data_np.shape[1]
+            else:
+                time_dim = len(data_np)
+            
             start_idx = max(0, start_idx)
             end_idx = min(time_dim, end_idx)
 
@@ -168,18 +220,18 @@ def process_single_csv(csv_path, external_noise_profile):
                     stationary=True
                 )
                 
-                # Convert back to Torch Tensor for Normalization & Saving
+                # Convert back to Torch Tensor for Normalization
                 tensor_stat = torch.from_numpy(clean_stationary_np)
                 if not is_stereo:
-                    tensor_stat = tensor_stat.unsqueeze(0) # Ensure [C, T] for torchaudio
+                    tensor_stat = tensor_stat.unsqueeze(0) # Ensure [C, T] for consistency
 
                 # 4. Normalize (Torch)
                 norm_stationary = normalize_audio(tensor_stat)
 
-                # 5. Save (Torchaudio)
-                save_wav(
-                    f"{condition}_{pwm}_{iteration}_Stationary.wav", 
-                    norm_stationary, 
+                # 5. Save (using scipy)
+                save_wav_with_scipy(
+                    os.path.join(OUTPUT_FOLDER, f"{condition}_{pwm}_{iteration}_Stationary.wav"),
+                    norm_stationary.numpy() if isinstance(norm_stationary, torch.Tensor) else norm_stationary,
                     rate
                 )
             except Exception as e:
@@ -201,31 +253,16 @@ def process_single_csv(csv_path, external_noise_profile):
                 # 4. Normalize (Torch)
                 norm_nonstat = normalize_audio(tensor_nonstat)
 
-                # 5. Save (Torchaudio)
-                save_wav(
-                    f"{condition}_{pwm}_{iteration}_Nonstationary.wav", 
-                    norm_nonstat, 
+                # 5. Save (using scipy)
+                save_wav_with_scipy(
+                    os.path.join(OUTPUT_FOLDER, f"{condition}_{pwm}_{iteration}_Nonstationary.wav"),
+                    norm_nonstat.numpy() if isinstance(norm_nonstat, torch.Tensor) else norm_nonstat,
                     rate
                 )
             except Exception as e:
                 print(f"   [Error] Non-stationary processing failed for {iteration}: {e}")
 
     print(f"   Done processing {os.path.basename(csv_path)}")
-
-def save_wav(filename, tensor_data, rate):
-    """
-    Helper to save tensor using torchaudio.
-    tensor_data should be [Channels, Time]
-    """
-    save_path = os.path.join(OUTPUT_FOLDER, filename)
-    
-    # Torchaudio handles saving float32 tensors automatically
-    # It will save as 32-bit float WAV if input is float, or 16-bit PCM if int.
-    # To mimic previous behavior (16-bit PCM), we can rely on torchaudio's encoding 
-    # or just save as float (which is better for ML). 
-    # Defaulting to float32 save for precision.
-    
-    torchaudio.save(save_path, tensor_data, rate)
 
 if __name__ == "__main__":
     process_all_metadata()

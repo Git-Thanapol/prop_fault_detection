@@ -6,8 +6,8 @@ const byte portPin = 9;
 
 // Propeller Direction Configuration
 // Change these to "CW" or "CCW" based on your physical blades
-String stbd_blade = "CCW"; 
-String port_blade = "CCW"; 
+String stbd_blade = "CW"; 
+String port_blade = "CW"; 
 
 // --- GLOBALS ---
 Servo stbd;

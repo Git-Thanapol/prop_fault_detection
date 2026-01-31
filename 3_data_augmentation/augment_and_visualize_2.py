@@ -17,7 +17,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # --- CONFIGURATION ---
-INPUT_DIR = "../Samples"
+INPUT_DIR = "./dataset_processed"
 OUTPUT_DIR = "dataset_output"
 
 # External Assets Paths
@@ -25,7 +25,7 @@ OUTPUT_DIR = "dataset_output"
 RIR_PATH = "rir_samples"
 
 # Audio Params
-SAMPLE_RATE = 48000
+SAMPLE_RATE = 44100
 N_FFT = 2048
 HOP_LENGTH = 512
 WIN_LENGTH = 1024
@@ -36,7 +36,7 @@ F_MAX = 8000
 # Image Output Params
 # (Width, Height) in inches. Multiplied by dpi=100 gives pixel dimensions.
 # e.g., (10, 5) -> 1000x500 pixels
-FIG_SIZE = (10, 5) 
+FIG_SIZE = (3.84, 3.84) 
 
 # Augmentation List
 AUGMENTATIONS = [

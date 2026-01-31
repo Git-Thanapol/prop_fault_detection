@@ -15,16 +15,17 @@ SERIAL_PORT = "COM3"  # <--- CHANGE THIS TO YOUR PORT (e.g., "COM3" or "/dev/tty
 BAUD_RATE = 9600
 
 # Audio Config
-SAMPLE_RATE = 48000
+SAMPLE_RATE = 44100
 CHANNELS = 1
 CHUNK_SIZE = 1024
 AUDIO_DEVICE_INDEX = None 
 
 # Experiment Settings
-RUN_DURATION = 6.0   # Time ON
-COOLDOWN = 2.0       # Time OFF (Neutral)
-BATCH_SIZE = 10      # Repeats per PWM
-PWM_LIST = [1200, 1300, 1400, 1500, 1600, 1700, 1800]
+RUN_DURATION = 4.2   # Time ON
+COOLDOWN = 1.0       # Time OFF (Neutral)
+BATCH_SIZE = 50     # Repeats per PWM
+PWM_LIST = [1200, 1300, 1400, 1600, 1700, 1800]
+#PWM_LIST = [1500]
 
 # Logging
 logging.basicConfig(format='%(asctime)s | %(message)s', level=logging.INFO, datefmt='%H:%M:%S')
@@ -126,7 +127,7 @@ class SerialController:
 
             # 2. Initialize Arduino
             self.send_cmd("stop")        # Safety reset
-            self.send_cmd("activate 11") # Enable both motors
+            self.send_cmd("activate 01") # Enable both motors
             self.send_cmd("start")       # Set running = true
             time.sleep(1)
 
@@ -183,7 +184,7 @@ if __name__ == "__main__":
         
         # --- INPUT YOUR CONDITION HERE ---
         # e.g., "Healthy", "Imbalance_L", "Barnacle_R"
-        current_condition = "Healthy" 
+        current_condition = "IMBALANCE3" 
         
         controller.run_session(current_condition)
         
