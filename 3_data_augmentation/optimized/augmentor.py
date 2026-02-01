@@ -122,7 +122,7 @@ class AudioAugmentor:
         """
         if aug_type == "time_masking":
             # Mask 50-100 ms. 
-            masking = T.TimeMasking(time_mask_param=10)
+            masking = T.TimeMasking(time_mask_param=20)
             return masking(spec_tensor)
         
         elif aug_type == "frequency_masking":
