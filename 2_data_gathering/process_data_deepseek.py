@@ -9,9 +9,13 @@ import torch
 # Removed torchaudio import
 
 # --- CONFIGURATION ---
-INPUT_FOLDER = "./dataset"
-OUTPUT_FOLDER = "dataset_processed"
-NOISE_SAMPLE_FILE = "../samples/TANK_SOUND_PWM1500_Iter2.wav"  # Optional: Place a specific noise file in root
+# --- CONFIGURATION ---
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+
+INPUT_FOLDER = os.path.join(PROJECT_ROOT, "dataset")
+OUTPUT_FOLDER = os.path.join(PROJECT_ROOT, "dataset_processed")
+NOISE_SAMPLE_FILE = os.path.join(PROJECT_ROOT, "samples", "TANK_SOUND_PWM1500_Iter2.wav")  # Optional: Place a specific noise file in root
 NORMALIZATION_THRESHOLD = 0.95          # Normalize peak to 95% of max volume
 
 def get_lowpass_filter(sample_rate):
@@ -136,7 +140,7 @@ def process_single_csv(csv_path, external_noise_profile):
         return
 
     for audio_filename, group in df.groupby("Audio_File"):
-        full_audio_path = audio_filename
+        full_audio_path = os.path.join(PROJECT_ROOT, audio_filename)
         if not os.path.exists(full_audio_path):
             print(f"   [WARNING] Audio file not found: {full_audio_path}. Skipping.")
             continue
