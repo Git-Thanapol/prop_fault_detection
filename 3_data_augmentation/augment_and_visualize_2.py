@@ -17,12 +17,15 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # --- CONFIGURATION ---
-INPUT_DIR = "./dataset_processed"
-OUTPUT_DIR = "dataset_output"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+
+INPUT_DIR = os.path.join(PROJECT_ROOT, "dataset_processed")
+OUTPUT_DIR = os.path.join(PROJECT_ROOT, "dataset_output")
 
 # External Assets Paths
 # Create these folders and place .wav files inside for these augmentations to work
-RIR_PATH = "rir_samples"
+RIR_PATH = os.path.join(PROJECT_ROOT, "rir_samples")
 
 # Audio Params
 SAMPLE_RATE = 44100
