@@ -1,4 +1,13 @@
 import os
+
+# --- CRITICAL STABILITY SETTINGS ---
+# Must be set BEFORE importing torch/numpy to prevent thread oversubscription.
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import glob
 import numpy as np
 import librosa
@@ -15,6 +24,7 @@ import warnings
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
 import multiprocessing
+import traceback
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings("ignore")
@@ -134,44 +144,49 @@ class AudioAugmentor:
 
     def process_file_logic(self, filepath):
         """Worker logic."""
-        filename = os.path.basename(filepath).replace(".wav", "")
-        y_base = self.load_audio(filepath)
-        if y_base is None: return False
+        try:
+            filename = os.path.basename(filepath).replace(".wav", "")
+            y_base = self.load_audio(filepath)
+            if y_base is None: return False
 
-        for aug_type in AUGMENTATIONS:
-            # Waveform Aug
-            y_aug = self.apply_waveform_augmentation(y_base, aug_type)
+            for aug_type in AUGMENTATIONS:
+                # Waveform Aug
+                y_aug = self.apply_waveform_augmentation(y_base, aug_type)
 
-            # To Tensor
-            if not y_aug.flags['C_CONTIGUOUS']:
-                y_aug = np.ascontiguousarray(y_aug)
-            tensor_aug = torch.from_numpy(y_aug).float().unsqueeze(0)
+                # To Tensor
+                if not y_aug.flags['C_CONTIGUOUS']:
+                    y_aug = np.ascontiguousarray(y_aug)
+                tensor_aug = torch.from_numpy(y_aug).float().unsqueeze(0)
 
-            # Tensor Aug
-            if aug_type == "pitch_shift":
-                tensor_aug = self.apply_tensor_augmentation(tensor_aug, aug_type)
+                # Tensor Aug
+                if aug_type == "pitch_shift":
+                    tensor_aug = self.apply_tensor_augmentation(tensor_aug, aug_type)
 
-            # Spectrogram
-            spec = self.spec_transform(tensor_aug)
-            spec_db = self.db_transform(spec)
-            if aug_type in ["time_masking", "frequency_masking"]:
-                spec_db = self.apply_spectral_masking(spec_db, aug_type)
+                # Spectrogram
+                spec = self.spec_transform(tensor_aug)
+                spec_db = self.db_transform(spec)
+                if aug_type in ["time_masking", "frequency_masking"]:
+                    spec_db = self.apply_spectral_masking(spec_db, aug_type)
+                
+                out_folder_spec = os.path.join(OUTPUT_DIR, "spectrograms")
+                os.makedirs(out_folder_spec, exist_ok=True)
+                self.save_visualization(spec_db, os.path.join(out_folder_spec, f"{filename}_{aug_type}.png"))
+
+                # Mel Spectrogram
+                mel = self.mel_transform(tensor_aug)
+                mel_db = self.db_transform(mel)
+                if aug_type in ["time_masking", "frequency_masking"]:
+                    mel_db = self.apply_spectral_masking(mel_db, aug_type)
+
+                out_folder_mel = os.path.join(OUTPUT_DIR, "mel_spectrograms")
+                os.makedirs(out_folder_mel, exist_ok=True)
+                self.save_visualization(mel_db, os.path.join(out_folder_mel, f"{filename}_{aug_type}.png"))
             
-            out_folder_spec = os.path.join(OUTPUT_DIR, "spectrograms")
-            os.makedirs(out_folder_spec, exist_ok=True)
-            self.save_visualization(spec_db, os.path.join(out_folder_spec, f"{filename}_{aug_type}.png"))
-
-            # Mel Spectrogram
-            mel = self.mel_transform(tensor_aug)
-            mel_db = self.db_transform(mel)
-            if aug_type in ["time_masking", "frequency_masking"]:
-                mel_db = self.apply_spectral_masking(mel_db, aug_type)
-
-            out_folder_mel = os.path.join(OUTPUT_DIR, "mel_spectrograms")
-            os.makedirs(out_folder_mel, exist_ok=True)
-            self.save_visualization(mel_db, os.path.join(out_folder_mel, f"{filename}_{aug_type}.png"))
-        
-        return True
+            return True
+        except Exception:
+            # Print traceback but don't crash the worker
+            traceback.print_exc()
+            return False
 
 # --- MULTIPROCESSING WRAPPER ---
 _augmentor = None
@@ -181,6 +196,8 @@ def init_worker():
     global _augmentor
     # Ensure matplotlib uses Agg in workers too
     matplotlib.use('Agg')
+    # Force single-thread per worker again for safety
+    torch.set_num_threads(1)
     _augmentor = AudioAugmentor()
 
 def process_file_wrapper(filepath):
@@ -197,16 +214,19 @@ def main():
         print(f"No wav files found in {INPUT_DIR}")
         return
 
-    num_cores = os.cpu_count()
+    # SAFE WORKER COUNT
+    # 80 processes is too heavy for PyTorch/Librosa (likely OOM or deadlock).
+    # Cap at 32 or less.
+    available_cores = os.cpu_count()
+    max_workers = min(available_cores, 32)
+    
     print(f"Found {len(files)} files.")
-    print(f"Starting Torch Multiprocessing with {num_cores} cores...")
+    print(f"Starting Torch Multiprocessing with {max_workers} processes (capped for stability)...")
 
-    # Torch often defaults to using multiple threads per process.
-    # When using multiprocessing, we usually want to limit each process to 1 thread
-    # to avoid context switching overhead since we are launching N processes.
-    torch.set_num_threads(1)
+    # Use 'spawn' context for PyTorch thread safety
+    ctx = multiprocessing.get_context('spawn')
 
-    with ProcessPoolExecutor(max_workers=num_cores, initializer=init_worker) as executor:
+    with ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx, initializer=init_worker) as executor:
         results = list(tqdm(executor.map(process_file_wrapper, files), total=len(files)))
 
     print("\nProcessing Complete.")
