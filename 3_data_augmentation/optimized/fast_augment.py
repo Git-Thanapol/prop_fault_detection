@@ -71,10 +71,13 @@ def process_file_wrapper(filepath):
             
             # --- SPECTROGRAM ---
             spec = _augmentor_instance.spec_transform(tensor_aug)
-            spec_db = _augmentor_instance.db_transform(spec)
             
+            # Apply Masking on POWER spec (before DB) so execution fills with 0 (silence)
+            # instead of 0 dB (loud).
             if aug_type in ["time_masking", "frequency_masking"]:
-                spec_db = _augmentor_instance.apply_spectral_masking(spec_db, aug_type)
+                spec = _augmentor_instance.apply_spectral_masking(spec, aug_type)
+
+            spec_db = _augmentor_instance.db_transform(spec)
                 
             out_folder_spec = os.path.join(config.OUTPUT_DIR, "spectrograms")
             visualizer.save_visualization(
@@ -84,11 +87,12 @@ def process_file_wrapper(filepath):
             
             # --- MEL SPECTROGRAM ---
             mel = _augmentor_instance.mel_transform(tensor_aug)
-            mel_db = _augmentor_instance.db_transform(mel)
             
             if aug_type in ["time_masking", "frequency_masking"]:
-                mel_db = _augmentor_instance.apply_spectral_masking(mel_db, aug_type)
+                mel = _augmentor_instance.apply_spectral_masking(mel, aug_type)
                 
+            mel_db = _augmentor_instance.db_transform(mel)
+            
             out_folder_mel = os.path.join(config.OUTPUT_DIR, "mel_spectrograms")
             visualizer.save_visualization(
                 mel_db,
