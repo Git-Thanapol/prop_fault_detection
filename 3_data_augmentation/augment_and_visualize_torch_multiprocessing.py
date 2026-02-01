@@ -1,7 +1,8 @@
+# --- CONFIGURATION & IMPORTS ---
 import os
 
 # --- CRITICAL STABILITY SETTINGS ---
-# Must be set BEFORE importing torch/numpy to prevent thread oversubscription.
+# Must be set BEFORE importing torch/numpy to avoid deadlocks/oversubscription
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -21,7 +22,6 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from audiomentations import Compose, AddColorNoise, AddGaussianNoise, ApplyImpulseResponse, Gain
 import warnings
-from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
 import multiprocessing
 import traceback
@@ -134,13 +134,21 @@ class AudioAugmentor:
 
     def save_visualization(self, spec_tensor, output_path, cmap='viridis'):
         data = spec_tensor.squeeze().numpy()
-        plt.figure(figsize=FIG_SIZE, frameon=False)
-        ax = plt.Axes(plt.gcf(), [0., 0., 1., 1.])
+        
+        # Use Figure constructor directly to avoid pyplot state tracking overlap issues
+        fig = plt.figure(figsize=FIG_SIZE, frameon=False)
+        ax = plt.Axes(fig, [0., 0., 1., 1.])
         ax.set_axis_off()
-        plt.gcf().add_axes(ax)
+        fig.add_axes(ax)
+        
         ax.imshow(data, aspect='auto', cmap=cmap, origin='lower')
-        plt.savefig(output_path, bbox_inches='tight', pad_inches=0)
-        plt.close()
+        
+        fig.savefig(output_path, bbox_inches='tight', pad_inches=0)
+        
+        # Explicitly close and clear
+        plt.close(fig)
+        fig.clf()
+        del fig # Hint to GC
 
     def process_file_logic(self, filepath):
         """Worker logic."""
@@ -214,20 +222,23 @@ def main():
         print(f"No wav files found in {INPUT_DIR}")
         return
 
-    # SAFE WORKER COUNT
-    # 80 processes is too heavy for PyTorch/Librosa (likely OOM or deadlock).
-    # Cap at 32 or less.
-    available_cores = os.cpu_count()
-    max_workers = min(available_cores, 32)
+    # EXTREMELY CONSERVATIVE STARTING POINT
+    # Start with 8 workers. If this works, you can increase it.
+    # 32 was still causing crashes, likely due to Memory usage per process.
+    max_workers = 8 
     
     print(f"Found {len(files)} files.")
-    print(f"Starting Torch Multiprocessing with {max_workers} processes (capped for stability)...")
+    print(f"Starting Torch Multiprocessing with {max_workers} processes and worker recycling...")
 
     # Use 'spawn' context for PyTorch thread safety
     ctx = multiprocessing.get_context('spawn')
 
-    with ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx, initializer=init_worker) as executor:
-        results = list(tqdm(executor.map(process_file_wrapper, files), total=len(files)))
+    # Use Pool instead of ProcessPoolExecutor to access maxtasksperchild.
+    # maxtasksperchild=10 means each worker processes 10 files and then completely restarts.
+    # This FREES ALL MEMORY/HANDLES preventing slow leaks affecting long runs.
+    with ctx.Pool(processes=max_workers, initializer=init_worker, maxtasksperchild=10) as pool:
+        # Use imap_unordered for potential slight speedup as order doesn't matter
+        results = list(tqdm(pool.imap_unordered(process_file_wrapper, files), total=len(files)))
 
     print("\nProcessing Complete.")
 
