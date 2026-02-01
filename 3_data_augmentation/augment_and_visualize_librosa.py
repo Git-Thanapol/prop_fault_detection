@@ -2,9 +2,6 @@ import os
 import glob
 import numpy as np
 import librosa
-import torch
-import torchaudio.transforms as T
-import torchaudio.functional as F
 import matplotlib
 # Fix for Tcl/Tk errors: Use 'Agg' backend for non-interactive image saving
 matplotlib.use('Agg') 
@@ -56,29 +53,7 @@ AUGMENTATIONS = [
 
 class AudioAugmentor:
     def __init__(self):
-        # 1. Initialize Torch Transforms (for visualization & some augs)
-        self.spec_transform = T.Spectrogram(
-            n_fft=N_FFT,
-            win_length=WIN_LENGTH,
-            hop_length=HOP_LENGTH,
-            window_fn=torch.hann_window,
-            power=2.0
-        )
-        
-        self.mel_transform = T.MelSpectrogram(
-            sample_rate=SAMPLE_RATE,
-            n_fft=N_FFT,
-            win_length=WIN_LENGTH,
-            hop_length=HOP_LENGTH,
-            n_mels=N_MELS,
-            f_min=F_MIN,
-            f_max=F_MAX,
-            power=2.0
-        )
-
-        self.db_transform = T.AmplitudeToDB(stype="power", top_db=80)
-
-        # 2. Initialize Audiomentations
+        # Initialize Audiomentations
         self.aug_colored_noise = AddColorNoise(p=1.0, min_snr_db=15, max_snr_db=25)
         self.aug_gain = Gain(min_gain_db=-6, max_gain_db=6, p=1.0)
         self.aug_gaussian_noise = AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0)
@@ -92,12 +67,16 @@ class AudioAugmentor:
 
     def load_audio(self, filepath):
         """
-        Load using Librosa (more robust than torchaudio on Windows).
+        Load using Librosa.
         Ensures mono and correct sample rate.
         """
         # librosa loads as [samples,]
-        y, sr = librosa.load(filepath, sr=SAMPLE_RATE, mono=True)
-        return y
+        try:
+            y, sr = librosa.load(filepath, sr=SAMPLE_RATE, mono=True)
+            return y
+        except Exception as e:
+            print(f"Error loading {filepath}: {e}")
+            return None
 
     def apply_waveform_augmentation(self, y, aug_type):
         """
@@ -114,9 +93,7 @@ class AudioAugmentor:
             return -1 * y_aug
         
         elif aug_type == "reverse":
-            # FIXED: Added .copy() because np.flip returns an array with negative strides,
-            # which torch.from_numpy() cannot handle.
-            return np.flip(y_aug).copy()
+            return np.flip(y_aug)
         
         elif aug_type == "colored_noise":
             return self.aug_colored_noise(samples=y_aug, sample_rate=SAMPLE_RATE)
@@ -135,57 +112,57 @@ class AudioAugmentor:
                     print(f"   [Error] RIR failed: {e}")
             return y_aug
 
-        # For spectral/tensor augmentations (PitchShift, TimeMask, FreqMask), 
-        # we return original here and handle them later or via Tensor conversion.
-        return y_aug
-
-    def apply_tensor_augmentation(self, tensor, aug_type):
-        """
-        Applies augmentations that require PyTorch Tensors (Pitch Shift).
-        """
-        if aug_type == "pitch_shift":
+        elif aug_type == "pitch_shift":
             # Pitch shift -2 to +2 semitones
             n_steps = np.random.uniform(-2, 2)
-            return F.pitch_shift(tensor, SAMPLE_RATE, n_steps)
-        
-        return tensor
+            # librosa.effects.pitch_shift works on waveform
+            return librosa.effects.pitch_shift(y_aug, sr=SAMPLE_RATE, n_steps=n_steps)
 
-    def apply_spectral_masking(self, spec_tensor, aug_type):
+        # For spectral masking (TimeMask, FreqMask), we return original waveform 
+        # and handle masking on the spectrogram step.
+        return y_aug
+
+    def apply_spectral_masking_numpy(self, spec_db, aug_type, is_mel=False):
         """
-        Applies masking directly to the spectrogram tensor.
+        Applies masking directly to the spectrogram (numpy array).
+        spec_db shape: [Frequency, Time]
         """
+        spec_masked = spec_db.copy()
+        n_freqs, n_time = spec_masked.shape
+        min_val = spec_masked.min() # Fill with silence (min db)
+
         if aug_type == "time_masking":
-            # Mask 50-100 ms. 
-            # We need to convert ms to frames. 
-            # 1 frame = HOP_LENGTH / SAMPLE_RATE = 512 / 48000 ≈ 10.6ms
-            # 50ms ≈ 5 frames, 100ms ≈ 10 frames
-            masking = T.TimeMasking(time_mask_param=10)
-            return masking(spec_tensor)
+            # Mask 50-100 ms
+            # 1 frame = HOP_LENGTH / SAMPLE_RATE = 512 / 44100 ≈ 11.6ms
+            # 50ms ≈ 4-5 frames, 100ms ≈ 8-9 frames
+            # Let's say max param T=10 frames
+            T_param = 10
+            t = np.random.randint(0, T_param + 1)
+            t0 = np.random.randint(0, n_time - t + 1)
+            # Mask columns
+            if t > 0:
+                spec_masked[:, t0:t0+t] = min_val
         
         elif aug_type == "frequency_masking":
-            # Mask 10-20% of bins. 
-            # For Spectrogram (N_FFT=2048 -> 1025 bins), 10% is ~100.
-            # For Mel (128 bins), 10% is ~13.
-            # We'll use a conservative param that works for both or check dimensions.
-            if spec_tensor.shape[-2] == N_MELS: # It's Mel
-                masking = T.FrequencyMasking(freq_mask_param=20)
-            else: # It's Standard Spec
-                masking = T.FrequencyMasking(freq_mask_param=100)
-            return masking(spec_tensor)
+            # Mask Frequency channels
+            # Librosa Spec: 1025 bins. Mel: 128 bins.
+            if is_mel:
+                F_param = 20 # Max bins to mask
+            else:
+                F_param = 100 # Max bins to mask
             
-        return spec_tensor
+            f = np.random.randint(0, F_param + 1)
+            f0 = np.random.randint(0, n_freqs - f + 1)
+            # Mask rows
+            if f > 0:
+                spec_masked[f0:f0+f, :] = min_val
+            
+        return spec_masked
 
-    def save_visualization(self, spec_tensor, output_path, cmap='viridis'):
+    def save_visualization(self, data, output_path, cmap='viridis'):
         """
-        Saves the tensor as a PNG image without axes.
+        Saves the numpy array as a PNG image without axes.
         """
-        # Move to CPU numpy
-        data = spec_tensor.squeeze().numpy()
-        
-        # Origin is normally bottom-left for spec, but imshow expects image data convention.
-        # Librosa/Matplotlib specs usually need origin='lower' in imshow.
-        # Or flipud manually.
-        
         plt.figure(figsize=FIG_SIZE, frameon=False)
         ax = plt.Axes(plt.gcf(), [0., 0., 1., 1.])
         ax.set_axis_off()
@@ -203,31 +180,27 @@ class AudioAugmentor:
 
         # 1. Load Audio (Numpy)
         y_base = self.load_audio(filepath)
+        if y_base is None:
+            return
 
         for aug_type in AUGMENTATIONS:
             # 2. Apply Waveform Augmentation (Numpy)
+            # Includes Pitch Shift now as it's easier on waveform with librosa
             y_aug = self.apply_waveform_augmentation(y_base, aug_type)
 
-            # 3. Convert to Tensor [1, Time]
-            # Ensure array is contiguous and has positive strides before conversion
-            if not y_aug.flags['C_CONTIGUOUS']:
-                y_aug = np.ascontiguousarray(y_aug)
-                
-            tensor_aug = torch.from_numpy(y_aug).float().unsqueeze(0)
-
-            # 4. Apply Tensor Augmentation (Pitch Shift)
-            if aug_type == "pitch_shift":
-                tensor_aug = self.apply_tensor_augmentation(tensor_aug, aug_type)
-
-            # 5. Generate Visualizations
+            # 3. Generate Visualizations
             
             # --- SPECTROGRAM ---
-            spec = self.spec_transform(tensor_aug)
-            spec_db = self.db_transform(spec)
+            # Compute STFT
+            D = librosa.stft(y_aug, n_fft=N_FFT, hop_length=HOP_LENGTH, win_length=WIN_LENGTH)
+            # Convert to Magnitude
+            spec = np.abs(D)**2
+            # Convert to DB
+            spec_db = librosa.power_to_db(spec, ref=np.max)
             
             # Apply Masking (if selected)
             if aug_type in ["time_masking", "frequency_masking"]:
-                spec_db = self.apply_spectral_masking(spec_db, aug_type)
+                spec_db = self.apply_spectral_masking_numpy(spec_db, aug_type, is_mel=False)
             
             # Save: dataset_output/spectrograms/filename_METHOD.png
             out_folder_spec = os.path.join(OUTPUT_DIR, "spectrograms")
@@ -239,12 +212,24 @@ class AudioAugmentor:
             )
 
             # --- MEL SPECTROGRAM ---
-            mel = self.mel_transform(tensor_aug)
-            mel_db = self.db_transform(mel)
+            # Compute Mel
+            mel = librosa.feature.melspectrogram(
+                y=y_aug, 
+                sr=SAMPLE_RATE, 
+                n_fft=N_FFT, 
+                hop_length=HOP_LENGTH, 
+                win_length=WIN_LENGTH,
+                n_mels=N_MELS,
+                fmin=F_MIN,
+                fmax=F_MAX,
+                power=2.0
+            )
+            # Convert to DB
+            mel_db = librosa.power_to_db(mel, ref=np.max)
             
             # Apply Masking (if selected)
             if aug_type in ["time_masking", "frequency_masking"]:
-                mel_db = self.apply_spectral_masking(mel_db, aug_type)
+                mel_db = self.apply_spectral_masking_numpy(mel_db, aug_type, is_mel=True)
 
             # Save: dataset_output/mel_spectrograms/filename_METHOD.png
             out_folder_mel = os.path.join(OUTPUT_DIR, "mel_spectrograms")
@@ -258,6 +243,7 @@ class AudioAugmentor:
 def main():
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
+        print(f"Created output directory: {OUTPUT_DIR}")
 
     # Find Files
     files = glob.glob(os.path.join(INPUT_DIR, "*.wav"))
@@ -265,7 +251,7 @@ def main():
         print(f"No wav files found in {INPUT_DIR}")
         return
 
-    print(f"Found {len(files)} files. Starting...")
+    print(f"Found {len(files)} files in {INPUT_DIR}. Starting...")
     
     augmentor = AudioAugmentor()
 
