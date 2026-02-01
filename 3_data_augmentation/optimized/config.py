@@ -11,17 +11,14 @@ OUTPUT_DIR = os.path.join(PROJECT_ROOT, "dataset_output")
 RIR_PATH = os.path.join(PROJECT_ROOT, "rir_samples")
 
 # --- AUDIO PARAMS ---
-# OPTIMIZED for F_MAX=1000Hz (Low Frequency Focus)
-SAMPLE_RATE = 44100
-# Increased N_FFT to 8192 to get ~5.4 Hz resolution per bin.
-# (44100 / 8192 = 5.38 Hz).
-# Standard 2048 would give ~21.5 Hz resolution, which is too coarse for 0-1000Hz.
-N_FFT = 8192
-HOP_LENGTH = 1024 # Overlap of 87.5% for smooth time steps
-WIN_LENGTH = 8192 # Window size matching FFT
-N_MELS = 128      # High vertical detail
-F_MIN = 20
-F_MAX = 1000
+# RESET to Torchaudio Defaults with user overrides
+SAMPLE_RATE = 16000
+N_FFT = 400
+HOP_LENGTH = 200     # Default: win_length // 2
+WIN_LENGTH = 400     # Default: n_fft
+N_MELS = 128
+F_MIN = 0
+F_MAX = 1200
 
 # --- VISUALIZATION PARAMS ---
 # (Width, Height) in inches. Multiplied by dpi=100 gives pixel dimensions.
