@@ -3,10 +3,17 @@ import glob
 import time
 import argparse
 import multiprocessing
-from concurrent.futures import ProcessPoolExecutor
 import torch
 import numpy as np
 from tqdm import tqdm
+
+# --- CRITICAL STABILITY FIXES ---
+# Prevent libraries from spawning their own threads, which causes
+# explosion when combined with multiprocessing (80 processes * N threads = crash).
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1" 
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 
 import config
 import augmentor
@@ -18,9 +25,13 @@ _augmentor_instance = None
 def init_worker():
     """
     Initializes the augmentor in each worker process.
-    This prevents pickling errors and ensures separate state.
+    Also ensures torch/numpy are restricted to single thread per process.
     """
     global _augmentor_instance
+    
+    # Double ensure threading limits inside the worker
+    torch.set_num_threads(1)
+    
     try:
         _augmentor_instance = augmentor.AudioAugmentor()
     except Exception as e:
@@ -32,7 +43,6 @@ def process_file_wrapper(filepath):
     """
     global _augmentor_instance
     if _augmentor_instance is None:
-        # Fallback if init_worker didn't run or failed (shouldn't happen with Pool reducer)
         _augmentor_instance = augmentor.AudioAugmentor()
     
     filename = os.path.basename(filepath).replace(".wav", "")
@@ -104,18 +114,20 @@ def main():
         return
 
     # Determine CPU count
-    # User mentioned "Super-user" and big server, likely many cores.
-    # Leave some cores for OS/overhead if needed, but default all is usually fine for batch jobs.
-    max_workers = os.cpu_count()
+    # Use 80% of cores to be safe, or all if confident in threading limits
+    total_cores = os.cpu_count()
+    max_workers = total_cores # Use all, trusting thread limits
+    
     print(f"Found {len(files)} files.")
     print(f"Starting processing with {max_workers} processes...")
     
     start_time = time.time()
     
-    # Run Orchestration
-    with ProcessPoolExecutor(max_workers=max_workers, initializer=init_worker) as executor:
-        # returns generator
-        results = list(tqdm(executor.map(process_file_wrapper, files), total=len(files), unit="file"))
+    # Use multiprocessing.Pool instead of Executor for maxtasksperchild support
+    # maxtasksperchild=10 restarts workers every 10 files to free memory/resources
+    with multiprocessing.Pool(processes=max_workers, initializer=init_worker, maxtasksperchild=10) as pool:
+        # imap_unordered is often faster and allows smoother progress bars
+        results = list(tqdm(pool.imap_unordered(process_file_wrapper, files), total=len(files), unit="file"))
         
     # Check results
     errors = [r for r in results if r is not None]
