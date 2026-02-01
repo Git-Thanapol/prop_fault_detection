@@ -32,6 +32,11 @@ def init_worker():
     # Double ensure threading limits inside the worker
     torch.set_num_threads(1)
     
+    # CRITICAL: Re-seed RNG for multiprocessing on Linux (fork)
+    seed = (os.getpid() * int(time.time())) % 123456789
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    
     try:
         _augmentor_instance = augmentor.AudioAugmentor()
     except Exception as e:

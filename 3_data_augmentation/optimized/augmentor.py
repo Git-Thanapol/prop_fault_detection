@@ -119,18 +119,35 @@ class AudioAugmentor:
     def apply_spectral_masking(self, spec_tensor, aug_type):
         """
         Applies masking directly to the spectrogram tensor.
+        Randomizes mask width and number of masks for more variation.
         """
         if aug_type == "time_masking":
-            # Mask 50-100 ms. 
-            masking = T.TimeMasking(time_mask_param=20)
-            return masking(spec_tensor)
+            # Apply 1 to 2 masks likely
+            num_masks = np.random.randint(1, 4) 
+            
+            # Note: T.TimeMasking applies *one* mask of max length `time_mask_param`
+            # Random position is handled by torchaudio internal logic (uniform sampling).
+            masked_spec = spec_tensor
+            for _ in range(num_masks):
+                # Randomize MAX size for EACH mask
+                t_param = np.random.randint(10, 40)
+                masking = T.TimeMasking(time_mask_param=t_param)
+                masked_spec = masking(masked_spec)
+            return masked_spec
         
         elif aug_type == "frequency_masking":
             # Mask 10-20% of bins. 
-            if spec_tensor.shape[-2] == config.N_MELS: # It's Mel
-                masking = T.FrequencyMasking(freq_mask_param=20)
-            else: # It's Standard Spec
-                masking = T.FrequencyMasking(freq_mask_param=100)
-            return masking(spec_tensor)
+            num_masks = np.random.randint(1, 3)
+            
+            masked_spec = spec_tensor
+            for _ in range(num_masks):
+                if spec_tensor.shape[-2] == config.N_MELS: # It's Mel
+                    f_param = np.random.randint(10, 30) # Randomize param
+                else: # It's Standard Spec
+                    f_param = np.random.randint(50, 150)
+                
+                masking = T.FrequencyMasking(freq_mask_param=f_param)
+                masked_spec = masking(masked_spec)
+            return masked_spec
             
         return spec_tensor
