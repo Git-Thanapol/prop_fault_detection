@@ -16,9 +16,9 @@ RIR_PATH = os.path.join(PROJECT_ROOT, "rir_samples")
 # 44100 / 8192 = 5.38 Hz per bin.
 # Maintains ~5.4 Hz resolution for 0-1200 Hz range.
 SAMPLE_RATE = 44100
-N_FFT = 8192
-HOP_LENGTH = 1024    # Match time-step density (~23ms)
-WIN_LENGTH = 8192    # Match FFT size
+N_FFT = 4096
+HOP_LENGTH = 512    # Match time-step density (~23ms)
+WIN_LENGTH = 4096    # Match FFT size
 N_MELS = 128
 F_MIN = 0
 F_MAX = 1200

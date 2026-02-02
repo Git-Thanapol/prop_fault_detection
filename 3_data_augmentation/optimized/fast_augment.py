@@ -52,6 +52,18 @@ def process_file_wrapper(filepath):
     
     filename = os.path.basename(filepath).replace(".wav", "")
     
+    # Check if all outputs already exist
+    all_exist = True
+    for aug_type in config.STRATEGIES:
+        spec_path = os.path.join(config.OUTPUT_DIR, "spectrograms", f"{filename}_{aug_type}.png")
+        mel_path = os.path.join(config.OUTPUT_DIR, "mel_spectrograms", f"{filename}_{aug_type}.png")
+        if not (os.path.exists(spec_path) and os.path.exists(mel_path)):
+            all_exist = False
+            break
+            
+    if all_exist:
+        return None  # Skip, already processed
+    
     try:
         # 1. Load Audio
         y_base = _augmentor_instance.load_audio(filepath)
@@ -134,19 +146,10 @@ def main():
     
     # Use multiprocessing.Pool instead of Executor for maxtasksperchild support
     # maxtasksperchild=10 restarts workers every 10 files to free memory/resources
-    # with multiprocessing.Pool(processes=max_workers, initializer=init_worker, maxtasksperchild=10) as pool:
+    with multiprocessing.Pool(processes=max_workers, initializer=init_worker, maxtasksperchild=10) as pool:
     #     # imap_unordered is often faster and allows smoother progress bars
-    #     results = list(tqdm(pool.imap_unordered(process_file_wrapper, files), total=len(files), unit="file"))
+        results = list(tqdm(pool.imap_unordered(process_file_wrapper, files), total=len(files), unit="file"))
 
-
-    # Use multiprocessing.Pool instead of Executor
-    # REMOVED maxtasksperchild restriction. RIR loading is expensive, we want to do it once per worker.
-    # The previous thread-locking fix should prevent the crashes/freezes that necessitated restarts.
-    with multiprocessing.Pool(processes=max_workers, initializer=init_worker) as pool:
-        # Chunksize: sending batches of files reduces IPC overhead.
-        # process_file_wrapper takes time (generating ~20 images), so small chunksize (e.g. 5-10) is good.
-        results = list(tqdm(pool.imap_unordered(process_file_wrapper, files, chunksize=5), total=len(files), unit="file"))
-        
     # Check results
     errors = [r for r in results if r is not None]
     if errors:
