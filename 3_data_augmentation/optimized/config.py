@@ -11,11 +11,14 @@ OUTPUT_DIR = os.path.join(PROJECT_ROOT, "dataset_output")
 RIR_PATH = os.path.join(PROJECT_ROOT, "rir_samples")
 
 # --- AUDIO PARAMS ---
-# RESET to Torchaudio Defaults with user overrides
-SAMPLE_RATE = 16000
-N_FFT = 400
-HOP_LENGTH = 200     # Default: win_length // 2
-WIN_LENGTH = 400     # Default: n_fft
+# OPTIMIZED for SR=44100Hz, F_MAX=1200Hz
+# Sweet spot calculation: Resolution = SR / N_FFT
+# 44100 / 8192 = 5.38 Hz per bin.
+# Maintains ~5.4 Hz resolution for 0-1200 Hz range.
+SAMPLE_RATE = 44100
+N_FFT = 8192
+HOP_LENGTH = 1024    # Match time-step density (~23ms)
+WIN_LENGTH = 8192    # Match FFT size
 N_MELS = 128
 F_MIN = 0
 F_MAX = 1200

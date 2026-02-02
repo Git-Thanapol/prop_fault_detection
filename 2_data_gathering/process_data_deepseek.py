@@ -15,7 +15,7 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 
 INPUT_FOLDER = os.path.join(PROJECT_ROOT, "dataset")
 OUTPUT_FOLDER = os.path.join(PROJECT_ROOT, "dataset_processed")
-NOISE_SAMPLE_FILE = os.path.join(PROJECT_ROOT, "samples", "TANK_SOUND_PWM1500_Iter2.wav")  # Optional: Place a specific noise file in root
+NOISE_SAMPLE_FILE = os.path.join(PROJECT_ROOT, "samples", "Audio_Healthy_1500_20251211_113750.wav")  # Optional: Place a specific noise file in root
 NORMALIZATION_THRESHOLD = 0.95          # Normalize peak to 95% of max volume
 
 def get_lowpass_filter(sample_rate):
@@ -107,7 +107,8 @@ def process_all_metadata():
         print(f"Created output folder: {OUTPUT_FOLDER}")
 
     print(os.path.join(INPUT_FOLDER, "*.csv"))
-    csv_files = glob.glob(os.path.join(INPUT_FOLDER, "*.csv"))
+    #csv_files = glob.glob(os.path.join(INPUT_FOLDER, "*.csv"))
+    csv_files = glob.glob(os.path.join(INPUT_FOLDER, "Meta_SEAWEED_20251211_135844.csv"))
     
     if not csv_files:
         print("No CSV files found in dataset folder!")
